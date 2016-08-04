@@ -1,13 +1,10 @@
-STRIP=strip
-
 all: eoip-ctl
 
 eoip-ctl: eoipcr.c libnetlink.o
-	$(CC) -Wall -Os -o eoip-ctl eoipcr.c libnetlink.o
-	$(STRIP) eoip-ctl
+	$(CC) $(CFLAGS) -fno-strict-aliasing -Wall -o eoip-ctl eoipcr.c libnetlink.o
 
 libnetlink.o: libnetlink.c libnetlink.h
-	$(CC) -Wall -Os -c libnetlink.c
+	$(CC) $(CFLAGS) -fno-strict-aliasing -Wall -c libnetlink.c
 
 clean:
 	rm -f eoip-ctl libnetlink.o
