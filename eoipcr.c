@@ -116,6 +116,48 @@ int rtnetlink_request(struct nlmsghdr *msg, int buflen, struct sockaddr_nl *adr)
 	return 0;
 }
 
+static int eoip_remove(char *name) {
+	unsigned long index = 0;
+	struct {
+		struct nlmsghdr msg;
+		struct ifinfomsg ifi;
+		uint32_t dummy[50];
+	} req = {
+		.msg = {
+			.nlmsg_len = 0, // fix me later
+			.nlmsg_type = RTM_DELLINK,
+			.nlmsg_flags = NLM_F_REQUEST,
+		},
+		.ifi = {
+			.ifi_family = AF_UNSPEC,
+			.ifi_index = 0,
+		}
+	};
+	struct sockaddr_nl adr = {
+		.nl_family = AF_NETLINK,
+	};
+
+	req.msg.nlmsg_len=((char *)&req.dummy-(char *)&req);
+
+	index = if_nametoindex(name);
+
+	if( index == 0 ) {
+		const int err = errno;
+		fprintf(stderr, "unable to get interface %s index: %s", name, strerror(err));
+
+		return 3;
+	} else {
+		req.ifi.ifi_index = index;
+
+		if (rtnetlink_request(&req.msg, sizeof req, &adr) < 0) {
+			perror("error in netlink request");
+			return 2;
+		}
+	}
+
+	return 0;
+}
+
 static int eoip_add(int excl,char *name,uint16_t tunnelid,uint32_t sip,uint32_t dip,uint32_t link,uint8_t ttl,uint8_t tos) {
 	struct {
 		struct nlmsghdr msg;
@@ -247,7 +289,7 @@ static int eoip_add(int excl,char *name,uint16_t tunnelid,uint32_t sip,uint32_t 
 
 	if (rtnetlink_request(&req.msg, sizeof req, &adr) < 0) {
 		perror("error in netlink request");
-		return -1;
+		return 1;
 	}
 	return 0;
 }
@@ -258,6 +300,7 @@ typedef enum {
 	C_LIST,
 	C_ADD,
 	C_SET,
+	C_REMOVE,
 	P_LOCAL,
 	P_REMOTE,
 	P_TUNNELID,
@@ -278,6 +321,7 @@ static s_cmd cmds[] = {
 	{ .cmd = "add", .cid = C_ADD, },
 	{ .cmd = "new", .cid = C_ADD, },
 	{ .cmd = "set", .cid = C_SET, },
+	{ .cmd = "remove", .cid = C_REMOVE },
 	{ .cmd = "change", .cid = C_SET, },
 	{ .cmd = NULL, .cid = 0, },
 };
@@ -327,8 +371,9 @@ static void usage(char *me) {
 	printf("usage:\n"
 		"\t%s add [name <name>] tunnel-id <id> [local <ip>] remote <ip> [ttl <ttl>] [tos <tos>] [link <ifindex|ifname>]\n"
 		"\t%s set  name <name>  tunnel-id <id> [local <ip>] remote <ip> [ttl <ttl>] [tos <tos>] [link <ifindex|ifname>]\n"
+		"\t%s remove name <name>\n"
 		"\t%s list\n",
-		me,me,me);
+		me,me,me,me);
 }
 
 int main(int argc,char **argv) {
@@ -429,8 +474,45 @@ int main(int argc,char **argv) {
 					return 0;
 				}
 				// tunnel id is in host byte order, addresses are in net byte order
-				eoip_add(excl,ifname,tid,sip,dip,link,ttl,tos);
-				return 0;
+				return eoip_add(excl,ifname,tid,sip,dip,link,ttl,tos);
+			}
+			case C_REMOVE: {
+				char ifname[IFNAMSIZ + 1] = "";
+				int i=2;
+
+				while (i < argc) {
+					e_cmd p = find_cmd(prms, argv[i]);
+					int noarg=!((i + 1) < argc);
+
+					switch (p) {
+						default:
+							break;
+						case E_NONE:
+							printf("unknown option: %s\n", argv[i]);
+							return 0;
+						case E_AMBIGUOUS:
+							printf("option is ambiguous: %s\n", argv[i]);
+							return 0;
+					}
+
+					if (noarg) {
+						printf("option: %s requires an argument\n", argv[i]);
+						return 0;
+					}
+
+					switch (p) {
+						default:
+							printf("BUG!\n");
+							return 0;
+						case P_NAME:
+							ifname[(sizeof ifname)-1] = 0;
+							strncpy(ifname,argv[i + 1], IFNAMSIZ);
+							break;
+					}
+					i += 2;
+				}
+
+				return eoip_remove(ifname);
 			}
 		}
 	}
